@@ -1,0 +1,44 @@
+# tnf-reviewer — layer-2 workflow preset
+#
+# STUB. Extends the layer-1 `tnf` domain preset with PR-review capability.
+# Fields below are the intended shape from the design doc; validate and
+# flesh out in Phase 2 (preset mechanics) and Phase 4 (review passes).
+#
+# NOTE: `extends:` and preset-shipped skills/agents are not yet supported by
+# the workspace plugin's preset mechanism — this preset depends on those
+# extensions (Phase 2). See docs/design/agent-pr-review.md.
+
+name: tnf-reviewer
+extends: tnf
+description: >-
+  PR-review workflow over the TNF domain: spec-compliance, cross-repo
+  contract check, and grounded architecture-fit passes, composed into one
+  pending GitHub review.
+
+# Review parameters — the domain-specific knobs that keep this pipeline
+# reusable. Other domains define their own preset with different values.
+review:
+  # Repos to grep for consumers when running the cross-repo contract check.
+  # TODO(Phase 4): derive default from dev-env.yaml instead of hardcoding.
+  contract_check_repos:
+    - cluster-etcd-operator
+    - machine-config-operator
+    - resource-agents
+    - fence-agents
+    - api
+
+  # TNF lifecycle phases a change may touch — used by spec-compliance to
+  # flag steady-state-only fixes that ignore install/bootstrap/handover.
+  lifecycle_phases:
+    - install
+    - bootstrap
+    - handover
+    - steady-state
+
+  # Issue tracker integration. TODO(open question): MCP server vs REST.
+  tracker:
+    type: jira
+    enabled: false
+
+# State artifact schema this preset's stages read/write.
+state_schema: docs/design/review-state.schema.yaml

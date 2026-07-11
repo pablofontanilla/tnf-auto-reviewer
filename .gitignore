@@ -1,0 +1,12 @@
+# Editor / OS cruft
+.DS_Store
+*.swp
+*~
+
+# Runtime review-state artifacts (belong to a project workspace, not the repo)
+review-state.yaml
+review-state.*.yaml
+
+# Local env / secrets (e.g. Jira credentials)
+.env
+.env.*

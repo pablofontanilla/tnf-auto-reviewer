@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "tnf-reviewer",
+  "displayName": "TNF Auto Reviewer",
+  "version": "0.0.1",
+  "description": "Agent PR-review pipeline for the TNF (Two Nodes with Fencing) domain. Ships the tnf-reviewer workflow preset, review-pass skills, and a reviewer agent that produces a pending GitHub review a human skims and submits. Stages communicate through an on-disk review-state artifact so each runs as a fresh, resumable subagent.",
+  "author": {
+    "name": "pablofontanilla"
+  },
+  "repository": "https://github.com/pablofontanilla/tnf-auto-reviewer",
+  "license": "Apache-2.0"
+}
