@@ -16,9 +16,13 @@ PR reviews are ~30% of TNF project work. The manual workflow today:
 4. Optionally run an adversarial pass over the PR's architecture fit
 5. Manually post inline comments and a top-level review
 
-This design turns that workflow into an agent pipeline where the human
-gate moves from "approve each finding" to "skim and submit one pending
-GitHub review."
+This design turns that workflow into an agent pipeline that, in its
+final form, runs **completely unattended** and posts its review to the
+PR itself (CodeRabbit-style) — no human in the loop, though the agent
+never approves. A **hold mode** exists for the evaluation and
+development phase: the pipeline runs all stages but stops before
+posting, leaving the composed review for a human to skim and submit.
+Hold is a trust-building mechanism, not the end state.
 
 ## Design principles
 
@@ -267,11 +271,17 @@ their own verdict):
 | None | COMMENT ("no issues found" summary) |
 | — | Never APPROVE (Prow gating; human-only) |
 
-### 6. Human gate
+### 6. Posting modes (human gate only in hold mode)
 
-The single human interaction: skim the pending review on GitHub,
-delete or edit anything, submit. The pending review *is* the approval
-UI — one interaction instead of one per finding.
+Two posting modes, selected per run:
+
+- **`auto` (the end state):** the pipeline submits the review itself —
+  REQUEST_CHANGES or COMMENT per the verdict policy, never APPROVE.
+  Fully unattended; no human interaction.
+- **`hold` (evaluation/development):** the pipeline stops after
+  compose. A human skims the composed review, deletes or edits
+  anything, and posts it — one interaction instead of one per finding.
+  Hold earns the trust to flip to `auto`.
 
 ### 7. Delta re-review on push
 

@@ -10,18 +10,23 @@ mechanism, distribution model)
 
 A proof of concept of the agent-based TNF PR-review pipeline: a
 self-contained Claude Code plugin plus a podman container image that
-reviews a TNF PR **unattended** and leaves one pending GitHub review for a
-human to skim and submit. Built as a **walking skeleton**: the thinnest
-end-to-end unattended run first, then review-quality passes, then
-hardening.
+reviews a TNF PR **unattended**. The end state (`auto` mode) posts the
+review to the PR itself, CodeRabbit-style — no human in the loop (the
+agent still never approves). During evaluation and development the
+pipeline runs in `hold` mode: all stages run, but the composed review is
+held for a human to skim and post. Built as a **walking skeleton**: the
+thinnest end-to-end unattended run first, then review-quality passes,
+then hardening.
 
 ## Goals
 
-- Unattended run against a live TNF PR producing a pending review good
-  enough to submit as-is.
-- **Hold-before-post**: the pipeline can run fully but stop before posting
-  anything to GitHub; a human resumes later in an ad-hoc Claude session to
-  post verbatim or adjust and re-run.
+- Unattended run against a live TNF PR producing a review good enough to
+  post as-is. In the end state (`auto`) the pipeline posts it itself;
+  there is no human gate.
+- **Hold-before-post (evaluation/development)**: the pipeline can run
+  fully but stop before posting anything to GitHub; a human resumes later
+  in an ad-hoc Claude session to post verbatim or adjust and re-run. Hold
+  exists to build trust toward `auto`, not as the final workflow.
 - Delta re-review on force-push without duplicating comments (M3).
 
 ## Non-goals (PoC)
@@ -46,7 +51,7 @@ hardening.
 | Runtime | Local podman, triggered by hand (cron later) |
 | State store | Bind-mounted host dir (`~/tnf-reviews/`) |
 | Orchestrator | Claude Code **dynamic workflow** (JS, `.claude/workflows/`) |
-| Initial posting mode | `hold` (flip to `auto` when trust is earned) |
+| Posting mode | **Workflow input parameter** (`--posting-mode=hold\|auto`, container env → workflow arg, recorded in state). Default `hold` during PoC; `auto` (fully unattended posting) is the end state |
 | Acceptance test | Live TNF PR: unattended run → skim → post (M1); push → no dupes (completes at M3) |
 
 ## Architecture
@@ -61,7 +66,8 @@ host machine
 │       ├── intent.md                   ← Jira snapshot (M2)
 │       ├── findings.md                 ← human-readable rendering
 │       └── CLAUDE.md                   ← lean index for ad-hoc sessions
-└── podman run --rm -v ~/tnf-reviews:/state -e GITHUB_TOKEN -e JIRA_PAT ...
+└── podman run --rm -v ~/tnf-reviews:/state -e GITHUB_TOKEN -e JIRA_PAT
+    -e POSTING_MODE=hold|auto ...
     └── container (Containerfile in this repo)
         ├── baked: TNF repos (blobless clones), TNF context files,
         │         this plugin, Claude Code CLI
@@ -82,14 +88,22 @@ ships in this one repo, hardcoded to TNF:
 |-------|------|---------|
 | 1 — domain | baked image layer | TNF repos + context files |
 | 2 — capability | `skills/`, `.claude/workflows/`, schema | procedure: stages, workflow, state contract |
-| 3 — autonomy | `agents/reviewer.md` | policy: gate collapsing, verdict, escalation, never-approve |
+| 3 — autonomy | `agents/reviewer.md` | judgment policy applied inside stages: verdict, escalation, never-approve |
 
 ### Orchestrator: dynamic workflow
 
 `.claude/workflows/review.js` sequences the stages using `agent()` (fresh
 context per stage) and `parallel()` (context passes). Rationale:
 deterministic sequencing, schema-validated stage outputs, isolated
-contexts, headless-capable — replaces prose Task-tool chaining.
+contexts, headless-capable — replaces prose Task-tool chaining. It takes
+`posting_mode` as an input parameter and records it in state.
+
+The workflow and the agent definition are **complementary, not
+overlapping**: the workflow (layer 2) owns procedure — stage order,
+parallelism, idempotent skipping, the posting-mode branch — while
+`agents/reviewer.md` (layer 3) owns the judgment policy the stage agents
+run under (verdict, escalation, never-approve). The workflow script
+absorbs what "gate collapsing" used to mean under prose orchestration.
 
 Workflow session-only resume is irrelevant because the script is
 **idempotent over `review-state.yaml`**: on start it reads `stages:` and
@@ -112,15 +126,17 @@ finding counts, verdict recommendation) as the container's output.
                               │
                        6 compose ──► composed review in state
                               │
-              ┌── posting_mode? ──┐
+              ┌── posting_mode? ──┐   (workflow input param)
             auto                hold
               │                   │
-       7 post pending        STOP. stages.post = held
+       7 post & submit       STOP. stages.post = held
        review (verbatim           │
-       from state)           ad-hoc Claude session later:
-              │                   ├─► post verbatim (stage 7 as-is)
-              ▼                   └─► adjust findings → re-run 2–6
-       8 HUMAN skims, submits
+       from state; COMMENT   ad-hoc Claude session later:
+       or REQUEST_CHANGES,        ├─► post verbatim (stage 7 as-is,
+       never APPROVE)             │   human skims first)
+              │                   └─► adjust findings → re-run 2–6
+              ▼
+       done — no human step
 ```
 
 Stage notes:
@@ -147,15 +163,19 @@ Stage notes:
   critical/major, minors collapsed into the top-level summary, verdict
   recommendation, dropped-as-noise table. Regenerates `findings.md`.
 - **Post** writes the composed review to GitHub **verbatim from state** —
-  deliberately trivial so what was approved in the ad-hoc session is
-  exactly what lands. Records comment IDs back into state.
+  deliberately trivial so what sits in state is exactly what lands. In
+  `auto` mode it submits the review directly (COMMENT or REQUEST_CHANGES
+  per verdict policy, never APPROVE); in `hold` mode the same stage runs
+  later from the ad-hoc session after a human skim. Records comment IDs
+  back into state.
 
 ## State model
 
 Schema: `review-state.schema.yaml` (reconstructed; finalized in M1).
 Additions from this design:
 
-- `posting_mode: auto | hold` (run-level)
+- `posting_mode: auto | hold` (run-level; set from the workflow input
+  parameter, recorded in state for audit)
 - stage status enum gains **`held`** ("deliberately stopped, awaiting
   human resume" — distinct from `pending`)
 - `stages.post` split from `stages.compose`
